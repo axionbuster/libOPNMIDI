@@ -677,6 +677,20 @@ public:
     bool realTime_NoteOn(uint8_t channel, uint8_t note, uint8_t velocity);
 
     /**
+     * @brief Replace one active realtime note with another on the same channel
+     * @param channel MIDI channel
+     * @param oldNote Note key to mute immediately (from 0 to 127)
+     * @param newNote Note key to start (from 0 to 127)
+     * @param velocity Velocity level for the new note (from 0 to 127)
+     * @return true if the new Note On event was accepted
+     */
+    bool realTime_MonoHandoff(uint8_t channel, uint8_t oldNote, uint8_t newNote, uint8_t velocity);
+
+    bool hasPendingMonoHandoffs() const;
+    void applyMonoHandoffFade();
+    void advanceMonoHandoffFade(size_t frames);
+
+    /**
      * @brief Note Off event
      * @param channel MIDI channel
      * @param note Note key (from 0 to 127)
@@ -862,6 +876,34 @@ private:
         Upd_Mute   = 0x40,
         Upd_OffMute = Upd_Off + Upd_Mute
     };
+
+    struct MonoHandoff
+    {
+        bool active;
+        uint8_t channel;
+        uint8_t oldNote;
+        uint8_t newNote;
+        uint8_t velocity;
+        unsigned fadeSamples;
+        unsigned fadeDone;
+
+        MonoHandoff() :
+            active(false),
+            channel(0),
+            oldNote(0),
+            newNote(0),
+            velocity(0),
+            fadeSamples(0),
+            fadeDone(0)
+        {}
+    };
+
+    MonoHandoff m_monoHandoffs[16];
+
+    unsigned monoHandoffFadeSamples() const;
+    uint8_t effectiveNoteVolume(size_t midCh, const MIDIchannel::NoteInfo &info) const;
+    uint8_t effectiveNoteBrightness(size_t midCh) const;
+    void touchNoteScaled(size_t midCh, const MIDIchannel::NoteInfo &info, uint16_t chipChannel, double scale);
 
     /**
      * @brief Update active note

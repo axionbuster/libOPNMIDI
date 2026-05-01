@@ -6,6 +6,7 @@ remove_definitions(-DOPNMIDI_ENABLE_HQ_RESAMPLER)
 
 add_subdirectory(activenotes)
 add_subdirectory(channel-users)
+add_subdirectory(mono-handoff)
 add_subdirectory(wopn-file)
 
 add_library(Catch-objects OBJECT "common/catch_main.cpp")

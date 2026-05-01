@@ -925,6 +925,17 @@ extern OPNMIDI_DECLSPEC void opn2_rt_resetState(struct OPN2_MIDIPlayer *device);
 extern OPNMIDI_DECLSPEC int opn2_rt_noteOn(struct OPN2_MIDIPlayer *device, OPN2_UInt8 channel, OPN2_UInt8 note, OPN2_UInt8 velocity);
 
 /**
+ * @brief Replace one active realtime MIDI note with another on the same channel
+ * @param device Instance of the library
+ * @param channel Target MIDI channel [Between 0 and 16]
+ * @param oldNote Currently sounding note number to mute [Between 0 and 127]
+ * @param newNote Note number to start [Between 0 and 127]
+ * @param velocity Velocity level for the new note [Between 0 and 127]
+ * @return 1 when the new note was accepted, 0 when device is NULL or the new note was rejected.
+ */
+extern OPNMIDI_DECLSPEC int opn2_rt_monoHandoff(struct OPN2_MIDIPlayer *device, OPN2_UInt8 channel, OPN2_UInt8 oldNote, OPN2_UInt8 newNote, OPN2_UInt8 velocity);
+
+/**
  * @brief Turn specific MIDI note OFF
  * @param device Instance of the library
  * @param channel Target MIDI channel [Between 0 and 16]

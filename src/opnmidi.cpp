@@ -1073,6 +1073,8 @@ OPNMIDI_EXPORT int opn2_playFormat(OPN2_MIDIPlayer *device, int sampleCount,
                 }
                 //! Count of stereo samples
                 ssize_t in_generatedStereo = (n_periodCountStereo > 512) ? 512 : n_periodCountStereo;
+                if(player->hasPendingMonoHandoffs() && in_generatedStereo > 1)
+                    in_generatedStereo = 1;
                 //! Total count of samples
                 ssize_t in_generatedPhys = in_generatedStereo * 2;
                 //! Unsigned total sample count
@@ -1081,6 +1083,7 @@ OPNMIDI_EXPORT int opn2_playFormat(OPN2_MIDIPlayer *device, int sampleCount,
                 std::memset(out_buf, 0, static_cast<size_t>(in_generatedPhys) * sizeof(out_buf[0]));
                 Synth &synth = *player->m_synth;
                 unsigned int chips = synth.m_numChips;
+                player->applyMonoHandoffFade();
                 if(chips == 1)
                     synth.m_chips[0]->generate32(out_buf, (size_t)in_generatedStereo);
                 else/* if(n_periodCountStereo > 0)*/
@@ -1092,6 +1095,7 @@ OPNMIDI_EXPORT int opn2_playFormat(OPN2_MIDIPlayer *device, int sampleCount,
                 /* Process it */
                 if(SendStereoAudio(sampleCount, in_generatedStereo, out_buf, gotten_len, out_left, out_right, format) == -1)
                     return 0;
+                player->advanceMonoHandoffFade(static_cast<size_t>(in_generatedStereo));
 
                 left -= (int)in_generatedPhys;
                 gotten_len += (in_generatedPhys) /* - setup.stored_samples*/;
@@ -1151,6 +1155,8 @@ OPNMIDI_EXPORT int opn2_generateFormat(struct OPN2_MIDIPlayer *device, int sampl
                     n_periodCountStereo = leftSamples;
                 //! Count of stereo samples
                 ssize_t in_generatedStereo = (n_periodCountStereo > 512) ? 512 : n_periodCountStereo;
+                if(player->hasPendingMonoHandoffs() && in_generatedStereo > 1)
+                    in_generatedStereo = 1;
                 //! Total count of samples
                 ssize_t in_generatedPhys = in_generatedStereo * 2;
                 //! Unsigned total sample count
@@ -1159,6 +1165,7 @@ OPNMIDI_EXPORT int opn2_generateFormat(struct OPN2_MIDIPlayer *device, int sampl
                 std::memset(out_buf, 0, static_cast<size_t>(in_generatedPhys) * sizeof(out_buf[0]));
                 Synth &synth = *player->m_synth;
                 unsigned int chips = synth.m_numChips;
+                player->applyMonoHandoffFade();
                 if(chips == 1)
                     synth.m_chips[0]->generate32(out_buf, (size_t)in_generatedStereo);
                 else/* if(n_periodCountStereo > 0)*/
@@ -1170,6 +1177,7 @@ OPNMIDI_EXPORT int opn2_generateFormat(struct OPN2_MIDIPlayer *device, int sampl
                 /* Process it */
                 if(SendStereoAudio(sampleCount, in_generatedStereo, out_buf, gotten_len, out_left, out_right, format) == -1)
                     return 0;
+                player->advanceMonoHandoffFade(static_cast<size_t>(in_generatedStereo));
 
                 left -= (int)in_generatedPhys;
                 gotten_len += (in_generatedPhys) /* - setup.stored_samples*/;
@@ -1292,6 +1300,15 @@ OPNMIDI_EXPORT int opn2_rt_noteOn(struct OPN2_MIDIPlayer *device, OPN2_UInt8 cha
     MidiPlayer *play = GET_MIDI_PLAYER(device);
     assert(play);
     return (int)play->realTime_NoteOn(channel, note, velocity);
+}
+
+OPNMIDI_EXPORT int opn2_rt_monoHandoff(struct OPN2_MIDIPlayer *device, OPN2_UInt8 channel, OPN2_UInt8 oldNote, OPN2_UInt8 newNote, OPN2_UInt8 velocity)
+{
+    if(!device)
+        return 0;
+    MidiPlayer *play = GET_MIDI_PLAYER(device);
+    assert(play);
+    return (int)play->realTime_MonoHandoff(channel, oldNote, newNote, velocity);
 }
 
 OPNMIDI_EXPORT void opn2_rt_noteOff(struct OPN2_MIDIPlayer *device, OPN2_UInt8 channel, OPN2_UInt8 note)

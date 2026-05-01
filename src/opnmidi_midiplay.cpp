@@ -441,7 +441,7 @@ bool OPNMIDIplay::realTime_NoteOn(uint8_t channel, uint8_t note, uint8_t velocit
         dummy.chip_channels_count = 0;
         // Record the last note on MIDI channel as source of portamento
         midiChan.portamentoSource = static_cast<int8_t>(note);
-        return false;
+        return true;
     }
 
     // Allocate AdLib channel (the physical sound channel for the note)
@@ -572,6 +572,96 @@ bool OPNMIDIplay::realTime_NoteOn(uint8_t channel, uint8_t note, uint8_t velocit
     }
 
     return true;
+}
+
+bool OPNMIDIplay::realTime_MonoHandoff(uint8_t channel, uint8_t oldNote, uint8_t newNote, uint8_t velocity)
+{
+    if(static_cast<size_t>(channel) >= m_midiChannels.size())
+        channel = channel % 16;
+
+    MIDIchannel &midiChan = m_midiChannels[channel];
+    MIDIchannel::notes_iterator old = midiChan.find_activenote(oldNote);
+    if(old.is_end())
+        return realTime_NoteOn(channel, newNote, velocity);
+
+    MonoHandoff &handoff = m_monoHandoffs[channel];
+    handoff.active = true;
+    handoff.channel = channel;
+    handoff.oldNote = oldNote;
+    handoff.newNote = newNote;
+    handoff.velocity = velocity;
+    handoff.fadeSamples = monoHandoffFadeSamples();
+    handoff.fadeDone = 0;
+    return true;
+}
+
+bool OPNMIDIplay::hasPendingMonoHandoffs() const
+{
+    for(size_t i = 0; i < 16; ++i)
+    {
+        if(m_monoHandoffs[i].active)
+            return true;
+    }
+    return false;
+}
+
+void OPNMIDIplay::applyMonoHandoffFade()
+{
+    for(size_t i = 0; i < 16; ++i)
+    {
+        MonoHandoff &handoff = m_monoHandoffs[i];
+        if(!handoff.active)
+            continue;
+
+        MIDIchannel &midiChan = m_midiChannels[handoff.channel];
+        MIDIchannel::notes_iterator old = midiChan.find_activenote(handoff.oldNote);
+        if(old.is_end())
+            continue;
+
+        MIDIchannel::NoteInfo &info = old->value;
+        double scale = 0.0;
+        if(handoff.fadeSamples > 0 && handoff.fadeDone < handoff.fadeSamples)
+            scale = double(handoff.fadeSamples - handoff.fadeDone) / double(handoff.fadeSamples);
+
+        for(unsigned ccount = 0; ccount < info.chip_channels_count; ++ccount)
+            touchNoteScaled(handoff.channel, info, info.chip_channels[ccount].chip_chan, scale);
+    }
+}
+
+void OPNMIDIplay::advanceMonoHandoffFade(size_t frames)
+{
+    for(size_t i = 0; i < 16; ++i)
+    {
+        MonoHandoff &handoff = m_monoHandoffs[i];
+        if(!handoff.active)
+            continue;
+
+        handoff.fadeDone += static_cast<unsigned>(frames);
+        if(handoff.fadeDone < handoff.fadeSamples)
+            continue;
+
+        MIDIchannel &midiChan = m_midiChannels[handoff.channel];
+        MIDIchannel::notes_iterator old = midiChan.find_activenote(handoff.oldNote);
+        uint8_t channel = handoff.channel;
+        uint8_t newNote = handoff.newNote;
+        uint8_t velocity = handoff.velocity;
+        handoff.active = false;
+
+        if(!old.is_end())
+            noteUpdate(channel, old, Upd_OffMute);
+
+        realTime_NoteOn(channel, newNote, velocity);
+    }
+}
+
+unsigned OPNMIDIplay::monoHandoffFadeSamples() const
+{
+    unsigned samples = static_cast<unsigned>((m_setup.PCM_RATE + 999) / 1000);
+    if(samples < 16)
+        samples = 16;
+    if(samples > 96)
+        samples = 96;
+    return samples;
 }
 
 void OPNMIDIplay::realTime_NoteOff(uint8_t channel, uint8_t note)
@@ -1160,81 +1250,7 @@ void OPNMIDIplay::noteUpdate(size_t midCh,
 
         if(props_mask & Upd_Volume)
         {
-            uint_fast32_t volume;
-            bool is_percussion = (midCh == 9) || m_midiChannels[midCh].is_xg_percussion;
-            uint_fast32_t brightness = is_percussion ? 127 : m_midiChannels[midCh].brightness;
-
-            if(!m_setup.fullRangeBrightnessCC74)
-            {
-                // Simulate post-High-Pass filter result which affects sounding by half level only
-                if(brightness >= 64)
-                    brightness = 127;
-                else
-                    brightness *= 2;
-            }
-
-            switch(synth.m_volumeScale)
-            {
-            default:
-            case Synth::VOLUME_Generic:
-            {
-                volume = vol * m_masterVolume * m_midiChannels[midCh].volume * m_midiChannels[midCh].expression;
-                /* If the channel has arpeggio, the effective volume of
-                     * *this* instrument is actually lower due to timesharing.
-                     * To compensate, add extra volume that corresponds to the
-                     * time this note is *not* heard.
-                     * Empirical tests however show that a full equal-proportion
-                     * increment sounds wrong. Therefore, using the square root.
-                     */
-                //volume = (int)(volume * std::sqrt( (double) ch[c].users.size() ));
-
-                // The formula below: SOLVE(V=127^3 * 2^( (A-63.49999) / 8), A)
-                volume = volume > (8725 * 127) ? static_cast<uint_fast32_t>((std::log(static_cast<double>(volume)) * 11.541560327111707 - 1.601379199767093e+02) * 2.0) : 0;
-                // The incorrect formula below: SOLVE(V=127^3 * (2^(A/63)-1), A)
-                //opl.Touch_Real(c, volume>11210 ? 91.61112 * std::log(4.8819E-7*volume + 1.0)+0.5 : 0);
-            }
-            break;
-
-            case Synth::VOLUME_NATIVE:
-            {
-                volume = vol * m_midiChannels[midCh].volume * m_midiChannels[midCh].expression;
-                //volume = volume * m_masterVolume / (127 * 127 * 127) / 2;
-                volume = (volume * m_masterVolume) / 4096766;
-            }
-            break;
-
-            case Synth::VOLUME_DMX:
-            {
-                volume = 2 * (m_midiChannels[midCh].volume * m_midiChannels[midCh].expression * m_masterVolume / 16129) + 1;
-                //volume = 2 * (Ch[MidCh].volume) + 1;
-                volume = (DMX_volume_mapping_table[(vol < 128) ? vol : 127] * volume) >> 9;
-                if(volume > 0)
-                    volume += 64;//OPN has 0~127 range. As 0...63 is almost full silence, but at 64 to 127 is very closed to OPL3, just add 64.
-            }
-            break;
-
-            case Synth::VOLUME_APOGEE:
-            {
-                volume = (m_midiChannels[midCh].volume * m_midiChannels[midCh].expression * m_masterVolume / 16129);
-                volume = ((64 * (vol + 0x80)) * volume) >> 15;
-                //volume = ((63 * (vol + 0x80)) * Ch[MidCh].volume) >> 15;
-                if(volume > 0)
-                    volume += 64;//OPN has 0~127 range. As 0...63 is almost full silence, but at 64 to 127 is very closed to OPL3, just add 64.
-            }
-            break;
-
-            case Synth::VOLUME_9X:
-            {
-                //volume = 63 - W9X_volume_mapping_table[(((vol * Ch[MidCh].volume /** Ch[MidCh].expression*/) * 127 / 16129 /*2048383*/) >> 2)];
-                volume = 63 - W9X_volume_mapping_table[((vol * m_midiChannels[midCh].volume * m_midiChannels[midCh].expression * m_masterVolume / 2048383) >> 2)];
-                //volume = W9X_volume_mapping_table[vol >> 2] + volume;
-                if(volume > 0)
-                    volume += 64;//OPN has 0~127 range. As 0...63 is almost full silence, but at 64 to 127 is very closed to OPL3, just add 64.
-            }
-            break;
-            }
-
-            synth.touchNote(c, static_cast<uint8_t>(volume), static_cast<uint8_t>(brightness));
+            synth.touchNote(c, effectiveNoteVolume(midCh, info), effectiveNoteBrightness(midCh));
 
             /* DEBUG ONLY!!!
             static uint32_t max = 0;
@@ -1294,6 +1310,87 @@ void OPNMIDIplay::noteUpdateAll(size_t midCh, unsigned props_mask)
         MIDIchannel::notes_iterator j(i++);
         noteUpdate(midCh, j, props_mask);
     }
+}
+
+uint8_t OPNMIDIplay::effectiveNoteBrightness(size_t midCh) const
+{
+    bool is_percussion = (midCh == 9) || m_midiChannels[midCh].is_xg_percussion;
+    uint_fast32_t brightness = is_percussion ? 127 : m_midiChannels[midCh].brightness;
+
+    if(!m_setup.fullRangeBrightnessCC74)
+    {
+        if(brightness >= 64)
+            brightness = 127;
+        else
+            brightness *= 2;
+    }
+
+    return static_cast<uint8_t>(brightness);
+}
+
+uint8_t OPNMIDIplay::effectiveNoteVolume(size_t midCh, const MIDIchannel::NoteInfo &info) const
+{
+    Synth &synth = *m_synth;
+    uint_fast32_t volume;
+    uint8_t vol = info.vol;
+
+    switch(synth.m_volumeScale)
+    {
+    default:
+    case Synth::VOLUME_Generic:
+    {
+        volume = vol * m_masterVolume * m_midiChannels[midCh].volume * m_midiChannels[midCh].expression;
+        volume = volume > (8725 * 127) ? static_cast<uint_fast32_t>((std::log(static_cast<double>(volume)) * 11.541560327111707 - 1.601379199767093e+02) * 2.0) : 0;
+    }
+    break;
+
+    case Synth::VOLUME_NATIVE:
+    {
+        volume = vol * m_midiChannels[midCh].volume * m_midiChannels[midCh].expression;
+        volume = (volume * m_masterVolume) / 4096766;
+    }
+    break;
+
+    case Synth::VOLUME_DMX:
+    {
+        volume = 2 * (m_midiChannels[midCh].volume * m_midiChannels[midCh].expression * m_masterVolume / 16129) + 1;
+        volume = (DMX_volume_mapping_table[(vol < 128) ? vol : 127] * volume) >> 9;
+        if(volume > 0)
+            volume += 64;
+    }
+    break;
+
+    case Synth::VOLUME_APOGEE:
+    {
+        volume = (m_midiChannels[midCh].volume * m_midiChannels[midCh].expression * m_masterVolume / 16129);
+        volume = ((64 * (vol + 0x80)) * volume) >> 15;
+        if(volume > 0)
+            volume += 64;
+    }
+    break;
+
+    case Synth::VOLUME_9X:
+    {
+        volume = 63 - W9X_volume_mapping_table[((vol * m_midiChannels[midCh].volume * m_midiChannels[midCh].expression * m_masterVolume / 2048383) >> 2)];
+        if(volume > 0)
+            volume += 64;
+    }
+    break;
+    }
+
+    return static_cast<uint8_t>(volume);
+}
+
+void OPNMIDIplay::touchNoteScaled(size_t midCh, const MIDIchannel::NoteInfo &info, uint16_t chipChannel, double scale)
+{
+    if(scale < 0.0)
+        scale = 0.0;
+    if(scale > 1.0)
+        scale = 1.0;
+
+    uint8_t volume = effectiveNoteVolume(midCh, info);
+    volume = static_cast<uint8_t>(std::floor(static_cast<double>(volume) * scale));
+    m_synth->touchNote(chipChannel, volume, effectiveNoteBrightness(midCh));
 }
 
 const std::string &OPNMIDIplay::getErrorString()
