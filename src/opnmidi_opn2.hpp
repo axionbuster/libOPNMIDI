@@ -177,6 +177,12 @@ public:
     void noteOff(size_t c);
 
     /**
+     * @brief Force the carrier operators of a channel to the fastest release rate
+     * @param c Channel of chip (Emulated chip choosing by next formula: [c = ch + (chipId * 23)])
+     */
+    void fastRelease(size_t c);
+
+    /**
      * @brief On the note in specified chip channel with specified frequency of the tone
      * @param c Channel of chip (Emulated chip choosing by next formula: [c = ch + (chipId * 23)])
      * @param hertz Frequency of the tone in hertzes

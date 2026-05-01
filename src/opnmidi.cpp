@@ -1294,6 +1294,15 @@ OPNMIDI_EXPORT int opn2_rt_noteOn(struct OPN2_MIDIPlayer *device, OPN2_UInt8 cha
     return (int)play->realTime_NoteOn(channel, note, velocity);
 }
 
+OPNMIDI_EXPORT int opn2_rt_noteOffFast(struct OPN2_MIDIPlayer *device, OPN2_UInt8 channel, OPN2_UInt8 note)
+{
+    if(!device)
+        return 0;
+    MidiPlayer *play = GET_MIDI_PLAYER(device);
+    assert(play);
+    return (int)play->realTime_NoteOffFast(channel, note);
+}
+
 OPNMIDI_EXPORT int opn2_rt_monoHandoff(struct OPN2_MIDIPlayer *device, OPN2_UInt8 channel, OPN2_UInt8 oldNote, OPN2_UInt8 newNote, OPN2_UInt8 velocity)
 {
     if(!device)

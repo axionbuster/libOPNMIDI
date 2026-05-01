@@ -111,6 +111,27 @@ int opn2_getLowestEmulator()
 
 static const uint32_t g_noteChannelsMap[6] = { 0, 1, 2, 4, 5, 6 };
 
+static inline bool isCarrierOperator(uint8_t algorithm, uint8_t op)
+{
+    static const bool carrierByAlgorithm[8][4] =
+    {
+        /*
+         * Operator 2 and 3 are swapped in register order:
+         *   OP1, OP3, OP2, OP4
+         *   30,  34,  38,  3C
+         */
+        {false, false, false, true }, // Algorithm #0: W = 1 * 2 * 3 * 4
+        {false, false, false, true }, // Algorithm #1: W = (1 + 2) * 3 * 4
+        {false, false, false, true }, // Algorithm #2: W = (1 + (2 * 3)) * 4
+        {false, false, false, true }, // Algorithm #3: W = ((1 * 2) + 3) * 4
+        {false, false, true,  true }, // Algorithm #4: W = (1 * 2) + (3 * 4)
+        {false, true,  true,  true }, // Algorithm #5: W = 1 * (2 + 3 + 4)
+        {false, true,  true,  true }, // Algorithm #6: W = (1 * 2) + 3 + 4
+        {true,  true,  true,  true }, // Algorithm #7: W = 1 + 2 + 3 + 4
+    };
+    return carrierByAlgorithm[algorithm & 0x07][op];
+}
+
 static inline void getOpnChannel(size_t     in_channel,
                                  size_t     &out_chip,
                                  uint8_t    &out_port,
@@ -197,6 +218,24 @@ void OPN2::noteOff(size_t c)
     writeRegI(chip, 0, 0x28, g_noteChannelsMap[ch4]);
 }
 
+void OPN2::fastRelease(size_t c)
+{
+    size_t      chip;
+    uint8_t     port;
+    uint32_t    cc;
+    getOpnChannel(c, chip, port, cc);
+
+    const opnInstData &adli = m_insCache[c];
+    const uint8_t algorithm = adli.fbalg & 0x07;
+    for(uint8_t op = 0; op < 4; ++op)
+    {
+        if(!isCarrierOperator(algorithm, op))
+            continue;
+        const uint8_t susrel = adli.OPS[op].data[5];
+        writeRegI(chip, port, 0x80 + cc + (4 * op), uint8_t((susrel & 0xF0) | 0x0F));
+    }
+}
+
 void OPN2::noteOn(size_t c, double hertz) // Hertz range: 0..131071
 {
     if(hertz < 0) // Avoid infinite loop
@@ -280,28 +319,10 @@ void OPN2::touchNote(size_t c, uint8_t volume, uint8_t brightness)
         adli.OPS[OPERATOR4].data[1],
     };
 
-    bool alg_do[8][4] =
-    {
-        /*
-         * Yeah, Operator 2 and 3 are seems swapped
-         * which we can see in the algorithm 4
-         */
-        //OP1   OP3   OP2    OP4
-        //30    34    38     3C
-        {false,false,false,true},//Algorithm #0:  W = 1 * 2 * 3 * 4
-        {false,false,false,true},//Algorithm #1:  W = (1 + 2) * 3 * 4
-        {false,false,false,true},//Algorithm #2:  W = (1 + (2 * 3)) * 4
-        {false,false,false,true},//Algorithm #3:  W = ((1 * 2) + 3) * 4
-        {false,false,true, true},//Algorithm #4:  W = (1 * 2) + (3 * 4)
-        {false,true ,true ,true},//Algorithm #5:  W = (1 * (2 + 3 + 4)
-        {false,true ,true ,true},//Algorithm #6:  W = (1 * 2) + 3 + 4
-        {true ,true ,true ,true},//Algorithm #7:  W = 1 + 2 + 3 + 4
-    };
-
     uint8_t alg = adli.fbalg & 0x07;
     for(uint8_t op = 0; op < 4; op++)
     {
-        bool do_op = alg_do[alg][op] || m_scaleModulators;
+        bool do_op = isCarrierOperator(alg, op) || m_scaleModulators;
         uint32_t x = op_vol[op];
         uint32_t vol_res = do_op ? (127 - (static_cast<uint32_t>(volume) * (127 - (x & 127)))/127) : x;
         if(brightness != 127)

@@ -677,6 +677,14 @@ public:
     bool realTime_NoteOn(uint8_t channel, uint8_t note, uint8_t velocity);
 
     /**
+     * @brief Force a note into the fastest carrier release path and key it off
+     * @param channel MIDI channel
+     * @param note Note key (from 0 to 127)
+     * @return true if the note was active and forced off
+     */
+    bool realTime_NoteOffFast(uint8_t channel, uint8_t note);
+
+    /**
      * @brief Replace one active realtime note with another on the same channel
      * @param channel MIDI channel
      * @param oldNote Note key to mute immediately (from 0 to 127)

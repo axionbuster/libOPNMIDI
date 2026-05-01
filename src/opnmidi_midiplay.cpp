@@ -576,15 +576,29 @@ bool OPNMIDIplay::realTime_NoteOn(uint8_t channel, uint8_t note, uint8_t velocit
 
 bool OPNMIDIplay::realTime_MonoHandoff(uint8_t channel, uint8_t oldNote, uint8_t newNote, uint8_t velocity)
 {
+    realTime_NoteOffFast(channel, oldNote);
+    return realTime_NoteOn(channel, newNote, velocity);
+}
+
+bool OPNMIDIplay::realTime_NoteOffFast(uint8_t channel, uint8_t note)
+{
     if(static_cast<size_t>(channel) >= m_midiChannels.size())
         channel = channel % 16;
 
     MIDIchannel &midiChan = m_midiChannels[channel];
-    MIDIchannel::notes_iterator old = midiChan.find_activenote(oldNote);
-    if(!old.is_end())
-        noteUpdate(channel, old, Upd_OffMute);
+    MIDIchannel::notes_iterator i = midiChan.find_activenote(note);
+    if(i.is_end())
+        return false;
 
-    return realTime_NoteOn(channel, newNote, velocity);
+    MIDIchannel::NoteInfo &info = i->value;
+    for(unsigned ccount = 0; ccount < info.chip_channels_count; ++ccount)
+        m_synth->fastRelease(info.chip_channels[ccount].chip_chan);
+
+    const uint8_t sustain = midiChan.sustain;
+    midiChan.sustain = 0;
+    noteUpdate(channel, i, Upd_Off);
+    midiChan.sustain = sustain;
+    return true;
 }
 
 void OPNMIDIplay::realTime_NoteOff(uint8_t channel, uint8_t note)

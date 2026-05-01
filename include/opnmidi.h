@@ -925,6 +925,15 @@ extern OPNMIDI_DECLSPEC void opn2_rt_resetState(struct OPN2_MIDIPlayer *device);
 extern OPNMIDI_DECLSPEC int opn2_rt_noteOn(struct OPN2_MIDIPlayer *device, OPN2_UInt8 channel, OPN2_UInt8 note, OPN2_UInt8 velocity);
 
 /**
+ * @brief Force a realtime MIDI note into the fastest carrier release path, then key it off
+ * @param device Instance of the library
+ * @param channel Target MIDI channel [Between 0 and 16]
+ * @param note Currently sounding note number to release [Between 0 and 127]
+ * @return 1 when the note was active and forced off, 0 when device is NULL or the note was not active.
+ */
+extern OPNMIDI_DECLSPEC int opn2_rt_noteOffFast(struct OPN2_MIDIPlayer *device, OPN2_UInt8 channel, OPN2_UInt8 note);
+
+/**
  * @brief Replace one active realtime MIDI note with another on the same channel
  * @param device Instance of the library
  * @param channel Target MIDI channel [Between 0 and 16]
