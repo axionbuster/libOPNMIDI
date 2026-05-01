@@ -1073,8 +1073,6 @@ OPNMIDI_EXPORT int opn2_playFormat(OPN2_MIDIPlayer *device, int sampleCount,
                 }
                 //! Count of stereo samples
                 ssize_t in_generatedStereo = (n_periodCountStereo > 512) ? 512 : n_periodCountStereo;
-                if(player->hasPendingMonoHandoffs() && in_generatedStereo > 1)
-                    in_generatedStereo = 1;
                 //! Total count of samples
                 ssize_t in_generatedPhys = in_generatedStereo * 2;
                 //! Unsigned total sample count
@@ -1155,8 +1153,6 @@ OPNMIDI_EXPORT int opn2_generateFormat(struct OPN2_MIDIPlayer *device, int sampl
                     n_periodCountStereo = leftSamples;
                 //! Count of stereo samples
                 ssize_t in_generatedStereo = (n_periodCountStereo > 512) ? 512 : n_periodCountStereo;
-                if(player->hasPendingMonoHandoffs() && in_generatedStereo > 1)
-                    in_generatedStereo = 1;
                 //! Total count of samples
                 ssize_t in_generatedPhys = in_generatedStereo * 2;
                 //! Unsigned total sample count
