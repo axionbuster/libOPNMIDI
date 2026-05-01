@@ -581,87 +581,10 @@ bool OPNMIDIplay::realTime_MonoHandoff(uint8_t channel, uint8_t oldNote, uint8_t
 
     MIDIchannel &midiChan = m_midiChannels[channel];
     MIDIchannel::notes_iterator old = midiChan.find_activenote(oldNote);
-    if(old.is_end())
-        return realTime_NoteOn(channel, newNote, velocity);
+    if(!old.is_end())
+        noteUpdate(channel, old, Upd_OffMute);
 
-    MonoHandoff &handoff = m_monoHandoffs[channel];
-    handoff.active = true;
-    handoff.channel = channel;
-    handoff.oldNote = oldNote;
-    handoff.newNote = newNote;
-    handoff.velocity = velocity;
-    handoff.fadeSamples = monoHandoffFadeSamples();
-    handoff.fadeDone = 0;
-    return true;
-}
-
-bool OPNMIDIplay::hasPendingMonoHandoffs() const
-{
-    for(size_t i = 0; i < 16; ++i)
-    {
-        if(m_monoHandoffs[i].active)
-            return true;
-    }
-    return false;
-}
-
-void OPNMIDIplay::applyMonoHandoffFade()
-{
-    for(size_t i = 0; i < 16; ++i)
-    {
-        MonoHandoff &handoff = m_monoHandoffs[i];
-        if(!handoff.active)
-            continue;
-
-        MIDIchannel &midiChan = m_midiChannels[handoff.channel];
-        MIDIchannel::notes_iterator old = midiChan.find_activenote(handoff.oldNote);
-        if(old.is_end())
-            continue;
-
-        MIDIchannel::NoteInfo &info = old->value;
-        double scale = 0.0;
-        if(handoff.fadeSamples > 0 && handoff.fadeDone < handoff.fadeSamples)
-            scale = double(handoff.fadeSamples - handoff.fadeDone) / double(handoff.fadeSamples);
-
-        for(unsigned ccount = 0; ccount < info.chip_channels_count; ++ccount)
-            touchNoteScaled(handoff.channel, info, info.chip_channels[ccount].chip_chan, scale);
-    }
-}
-
-void OPNMIDIplay::advanceMonoHandoffFade(size_t frames)
-{
-    for(size_t i = 0; i < 16; ++i)
-    {
-        MonoHandoff &handoff = m_monoHandoffs[i];
-        if(!handoff.active)
-            continue;
-
-        handoff.fadeDone += static_cast<unsigned>(frames);
-        if(handoff.fadeDone < handoff.fadeSamples)
-            continue;
-
-        MIDIchannel &midiChan = m_midiChannels[handoff.channel];
-        MIDIchannel::notes_iterator old = midiChan.find_activenote(handoff.oldNote);
-        uint8_t channel = handoff.channel;
-        uint8_t newNote = handoff.newNote;
-        uint8_t velocity = handoff.velocity;
-        handoff.active = false;
-
-        if(!old.is_end())
-            noteUpdate(channel, old, Upd_OffMute);
-
-        realTime_NoteOn(channel, newNote, velocity);
-    }
-}
-
-unsigned OPNMIDIplay::monoHandoffFadeSamples() const
-{
-    unsigned samples = static_cast<unsigned>((m_setup.PCM_RATE + 999) / 1000);
-    if(samples < 16)
-        samples = 16;
-    if(samples > 96)
-        samples = 96;
-    return samples;
+    return realTime_NoteOn(channel, newNote, velocity);
 }
 
 void OPNMIDIplay::realTime_NoteOff(uint8_t channel, uint8_t note)
@@ -1379,18 +1302,6 @@ uint8_t OPNMIDIplay::effectiveNoteVolume(size_t midCh, const MIDIchannel::NoteIn
     }
 
     return static_cast<uint8_t>(volume);
-}
-
-void OPNMIDIplay::touchNoteScaled(size_t midCh, const MIDIchannel::NoteInfo &info, uint16_t chipChannel, double scale)
-{
-    if(scale < 0.0)
-        scale = 0.0;
-    if(scale > 1.0)
-        scale = 1.0;
-
-    uint8_t volume = effectiveNoteVolume(midCh, info);
-    volume = static_cast<uint8_t>(std::floor(static_cast<double>(volume) * scale));
-    m_synth->touchNote(chipChannel, volume, effectiveNoteBrightness(midCh));
 }
 
 const std::string &OPNMIDIplay::getErrorString()
